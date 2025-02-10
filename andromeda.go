@@ -15,6 +15,7 @@ import (
 const (
 	endpointGetSites     = "/Sites"
 	endpointGetCustomers = "/Customers"
+	endpointCheckPanic   = "/CheckPanic"
 
 	defaultTimeout = 5 * time.Second
 )
@@ -36,6 +37,23 @@ type (
 		Host     string
 	}
 
+	//Входная структура для метода CheckPanic
+	PostCheckPanicInput struct {
+		SiteId        string //Идентификатор объекта, по которому нужно проверить КТС
+		CheckInterval int    //Интервал в секундах, в течении которого будет продолжаться процедура проверки КТС. (необязательное поле)
+		StopOnEvent   bool   //Признак остановки проверки КТС. (необязательное поле)
+		UserName      string //Имя пользователя, от которого делается запрос (необязательное поле)
+		ApiKey        string
+		Host          string
+	}
+
+	GetCheckPanicInput struct {
+		CheckPanicId string //Идентификатор процеудры проверки, для которой нужно получить результат
+		UserName     string //Имя пользователя, от которого делается запрос (необязательное поле)
+		ApiKey       string
+		Host         string
+	}
+
 	request struct {
 		URL    string
 		body   []byte
@@ -46,6 +64,17 @@ type (
 	respErr400 struct {
 		Message      string `json:"Message"`
 		SpResultCode int    `json:"SpResultCode"`
+	}
+
+	PostCheckPanicResponse struct {
+		Status       int    `json:"Status"`
+		Description  string `json:"Description"`
+		CheckPanicId string `json:"CheckPanicId"`
+	}
+
+	GetCheckPanicResponse struct {
+		Status      int    `json:"Status"`
+		Description string `json:"Description"`
 	}
 
 	//Структура ответа от сервера метода GetSites
@@ -145,6 +174,45 @@ func (i GetCustomersInput) validate() error {
 	return nil
 }
 
+// Проверка заполнения обязательных полей метода PostCheckPanic
+func (i PostCheckPanicInput) validate() error {
+	if i.SiteId == "" {
+		return errors.New("неверно задан номер объекта")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	if i.CheckInterval != 0 {
+		if i.CheckInterval <= 30 || i.CheckInterval >= 180 {
+			return errors.New("неверно задано время ожидания проверки")
+		}
+	}
+	return nil
+}
+
+// Проверка заполнения обязательных полей метода PostCheckPanic
+func (i GetCheckPanicInput) validate() error {
+	if i.CheckPanicId == "" {
+		return errors.New("неверно задан идентификатор проверки")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
 // Генерация запроса метода GetSites
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
@@ -168,6 +236,48 @@ func (i GetCustomersInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetCustomers)
 	param := url.Values{}
 	param.Add("siteId", i.SiteId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+// Генерация запроса метода PostCheckPanic
+func (i PostCheckPanicInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointCheckPanic)
+	param := url.Values{}
+	param.Add("siteId", i.SiteId)
+	param.Add("stopOnEvent", "True")
+	if i.CheckInterval != 0 {
+		param.Add("checkInterval", strconv.Itoa(i.CheckInterval))
+	}
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+// Генерация запроса метода GetCheckPanic
+func (i GetCheckPanicInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointCheckPanic)
+	param := url.Values{}
+	param.Add("checkPanicId", i.CheckPanicId)
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
@@ -230,6 +340,50 @@ func (c *Client) Customers(ctx context.Context, input GetCustomersInput) ([]GetC
 	err = json.Unmarshal(body, &resp)
 	if err != nil {
 		return []GetCustomerResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода PostCheckPanic
+func (c *Client) PostCheckPanic(ctx context.Context, input PostCheckPanicInput) (PostCheckPanicResponse, error) {
+	if err := input.validate(); err != nil {
+		return PostCheckPanicResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodPost, req)
+	if err != nil {
+		return PostCheckPanicResponse{}, err
+	}
+
+	var resp PostCheckPanicResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return PostCheckPanicResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода GetCheckPanic
+func (c *Client) GetCheckPanic(ctx context.Context, input GetCheckPanicInput) (GetCheckPanicResponse, error) {
+	if err := input.validate(); err != nil {
+		return GetCheckPanicResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return GetCheckPanicResponse{}, err
+	}
+
+	var resp GetCheckPanicResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return GetCheckPanicResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
 	}
 
 	return resp, nil
