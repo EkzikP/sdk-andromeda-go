@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	endpointGetSites     = "/Sites"
-	endpointGetCustomers = "/Customers"
-	endpointCheckPanic   = "/CheckPanic"
-	endpointMyAlarm      = "/MyAlarm"
+	endpointGetSites             = "/Sites"
+	endpointGetCustomers         = "/Customers"
+	endpointCheckPanic           = "/CheckPanic"
+	endpointMyAlarm              = "/MyAlarm"
+	endpointGetUserObjectMyAlarm = "/MyAlarm/UserObjects"
 
 	defaultTimeout = 5 * time.Second
 )
@@ -72,6 +73,14 @@ type (
 		Host     string
 	}
 
+	//Входная структура для метода GetUserObjectMyAlarm
+	GetUserObjectMyAlarmInput struct {
+		Phone    string `json:"Phone"` //Телефон пользователя MyAlarm, для которого нужно получить список объектов
+		UserName string `json:"-"`     //Имя пользователя, от которого делается запрос (необязательное поле)
+		ApiKey   string `json:"-"`
+		Host     string `json:"-"`
+	}
+
 	request struct {
 		URL    string
 		body   []byte
@@ -104,6 +113,14 @@ type (
 		MyAlarmPhone string `json:"MyAlarmPhone"` //Телефон пользователя MyAlarm
 		Role         string `json:"Role"`         //Роль пользователя
 		IsPanic      bool   `json:"IsPanic"`      //Разрешён или запрещён КТС
+	}
+
+	//Структура ответа от сервера метода GetUserObjectMyAlarm
+	GetUserObjectMyAlarmResponse struct {
+		ObjectGUID string `json:"ObjectGUID"` //Идентификатор объекта
+		CustomerID string `json:"CustomerID"` //Идентификатор пользователя
+		Role       string `json:"Role"`       //Роль пользователя
+		IsPanic    bool   `json:"IsPanic"`    //Разрешён или запрещён КТС
 	}
 
 	//Структура ответа от сервера метода GetSites
@@ -242,7 +259,7 @@ func (i PostCheckPanicInput) validate() error {
 	return nil
 }
 
-// Проверка заполнения обязательных полей метода PostCheckPanic
+// Проверка заполнения обязательных полей метода GetCheckPanic
 func (i GetCheckPanicInput) validate() error {
 	if i.CheckPanicId == "" {
 		return errors.New("неверно задан идентификатор проверки")
@@ -259,10 +276,31 @@ func (i GetCheckPanicInput) validate() error {
 	return nil
 }
 
-// Проверка заполнения обязательных полей метода PostCheckPanic
+// Проверка заполнения обязательных полей метода GetUsersMyAlarm
 func (i GetUsersMyAlarmInput) validate() error {
 	if i.SiteId == "" {
-		return errors.New("неверно задан идентификатор проверки")
+		return errors.New("неверно задан идентификатор объекта")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
+// Проверка заполнения обязательных полей метода GetUserObjectMyAlarm
+func (i GetUserObjectMyAlarmInput) validate() error {
+	if i.Phone == "" {
+		return errors.New("неверно задан номер телефона")
+	}
+
+	if len(i.Phone) != 12 && i.Phone[:2] != "+7" {
+		return errors.New("неверно задан номер телефона")
 	}
 
 	if i.ApiKey == "" {
@@ -386,6 +424,24 @@ func (i GetUsersMyAlarmInput) generateRequest() request {
 	return request{
 		URL:    baseURL.String(),
 		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i GetUserObjectMyAlarmInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointGetUserObjectMyAlarm)
+	param := url.Values{}
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+	jsonData, _ := json.Marshal(i)
+
+	return request{
+		URL:    baseURL.String(),
+		body:   jsonData,
 		apiKey: i.ApiKey,
 	}
 
@@ -533,6 +589,28 @@ func (c *Client) GetUsersMyAlarm(ctx context.Context, input GetUsersMyAlarmInput
 	return resp, nil
 }
 
+// Запрос метода GetUserObjectMyAlarm
+func (c *Client) GetUserObjectMyAlarm(ctx context.Context, input GetUserObjectMyAlarmInput) ([]GetUserObjectMyAlarmResponse, error) {
+	if err := input.validate(); err != nil {
+		return []GetUserObjectMyAlarmResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return []GetUserObjectMyAlarmResponse{}, err
+	}
+
+	var resp []GetUserObjectMyAlarmResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return []GetUserObjectMyAlarmResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
 // Метод http выполнения запроса
 func (c *Client) doHTTP(ctx context.Context, method string, r request) ([]byte, error) {
 
@@ -542,6 +620,7 @@ func (c *Client) doHTTP(ctx context.Context, method string, r request) ([]byte, 
 	}
 
 	req.Header.Set("apiKey", r.apiKey)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
