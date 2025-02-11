@@ -25,7 +25,7 @@ const (
 type (
 	//Входная структура для метода GetSites
 	GetSitesInput struct {
-		Id       int    //Номер объекта
+		Id       string //Номер или идентификатор объекта
 		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
 		ApiKey   string
 		Host     string
@@ -188,7 +188,7 @@ type (
 
 // Проверка заполнения обязательных полей метода GetSites
 func (i GetSitesInput) validate() error {
-	if i.Id < 1 {
+	if i.Id == "" {
 		return errors.New("неверно задан номер объекта")
 	}
 
@@ -318,7 +318,7 @@ func (i GetUserObjectMyAlarmInput) validate() error {
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
 	param := url.Values{}
-	param.Add("id", strconv.Itoa(i.Id))
+	param.Add("id", i.Id)
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
