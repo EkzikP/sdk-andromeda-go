@@ -38,6 +38,14 @@ type (
 		Host     string
 	}
 
+	//Входная структура для метода GetCustomer
+	GetCustomerInput struct {
+		Id       string //Идентификатор ответственного лица, информацию которого нужно получить
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		ApiKey   string
+		Host     string
+	}
+
 	//Входная структура для метода PostCheckPanic
 	PostCheckPanicInput struct {
 		SiteId        string //Идентификатор объекта, по которому нужно проверить КТС
@@ -141,7 +149,7 @@ type (
 		StateArmDisArmDateTime     string  `json:"StateArmDisArmDateTime"`     //Состояние объекта: время последнего взятия / снятия.
 	}
 
-	//Структура ответа метода GetCustomers
+	//Структура ответа метода GetCustomers, GetCustomer
 	GetCustomerResponse struct {
 		Id                 string `json:"Id"`                 //Идентификатор ответственного лица
 		OrderNumber        int    `json:"OrderNumber"`        //Порядковый номер ответственного в списк (уникальный на объекте, может быть не задан)
@@ -182,6 +190,23 @@ func (i GetSitesInput) validate() error {
 func (i GetCustomersInput) validate() error {
 	if i.SiteId == "" {
 		return errors.New("неверно задан номер объекта")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
+// Проверка заполнения обязательных полей метода GetCustomer
+func (i GetCustomerInput) validate() error {
+	if i.Id == "" {
+		return errors.New("неверно задан идентификатор ответственного лица")
 	}
 
 	if i.ApiKey == "" {
@@ -274,6 +299,25 @@ func (i GetCustomersInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetCustomers)
 	param := url.Values{}
 	param.Add("siteId", i.SiteId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+// Генерация запроса метода GetCustomer
+func (i GetCustomerInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointGetCustomers)
+	param := url.Values{}
+	param.Add("id", i.Id)
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
@@ -396,6 +440,28 @@ func (c *Client) Customers(ctx context.Context, input GetCustomersInput) ([]GetC
 	err = json.Unmarshal(body, &resp)
 	if err != nil {
 		return []GetCustomerResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода GetCustomer
+func (c *Client) GetCustomer(ctx context.Context, input GetCustomerInput) (GetCustomerResponse, error) {
+	if err := input.validate(); err != nil {
+		return GetCustomerResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return GetCustomerResponse{}, err
+	}
+
+	resp := GetCustomerResponse{}
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return GetCustomerResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
 	}
 
 	return resp, nil
