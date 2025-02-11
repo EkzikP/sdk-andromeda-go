@@ -16,6 +16,7 @@ const (
 	endpointGetSites     = "/Sites"
 	endpointGetCustomers = "/Customers"
 	endpointCheckPanic   = "/CheckPanic"
+	endpointMyAlarm      = "/MyAlarm"
 
 	defaultTimeout = 5 * time.Second
 )
@@ -37,7 +38,7 @@ type (
 		Host     string
 	}
 
-	//Входная структура для метода CheckPanic
+	//Входная структура для метода PostCheckPanic
 	PostCheckPanicInput struct {
 		SiteId        string //Идентификатор объекта, по которому нужно проверить КТС
 		CheckInterval int    //Интервал в секундах, в течении которого будет продолжаться процедура проверки КТС. (необязательное поле)
@@ -47,11 +48,20 @@ type (
 		Host          string
 	}
 
+	//Входная структура для метода GetCheckPanic
 	GetCheckPanicInput struct {
 		CheckPanicId string //Идентификатор процеудры проверки, для которой нужно получить результат
 		UserName     string //Имя пользователя, от которого делается запрос (необязательное поле)
 		ApiKey       string
 		Host         string
+	}
+
+	//Входная структура для метода GetUsersMyAlarm
+	GetUsersMyAlarmInput struct {
+		SiteId   string //Идентификатор объекта, список пользователей MyAlarm которого нужно получить. Соответствует полю Id карточки объекта
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		ApiKey   string
+		Host     string
 	}
 
 	request struct {
@@ -66,15 +76,26 @@ type (
 		SpResultCode int    `json:"SpResultCode"`
 	}
 
+	//Структура ответа от сервера метода PostCheckPanic
 	PostCheckPanicResponse struct {
 		Status       int    `json:"Status"`
 		Description  string `json:"Description"`
 		CheckPanicId string `json:"CheckPanicId"`
 	}
 
+	//Структура ответа от сервера метода GetCheckPanic
 	GetCheckPanicResponse struct {
 		Status      int    `json:"Status"`
 		Description string `json:"Description"`
+	}
+
+	//Структура ответа от сервера метода GetUsersMyAlarm
+	UserMyAlarmResponse struct {
+		CustomerID   string `json:"CustomerID"`   //Идентификатор пользователя
+		MobilePhone  string `json:"MobilePhone"`  //Телефон ответственного
+		MyAlarmPhone string `json:"MyAlarmPhone"` //Телефон пользователя MyAlarm
+		Role         string `json:"Role"`         //Роль пользователя
+		IsPanic      bool   `json:"IsPanic"`      //Разрешён или запрещён КТС
 	}
 
 	//Структура ответа от сервера метода GetSites
@@ -213,6 +234,23 @@ func (i GetCheckPanicInput) validate() error {
 	return nil
 }
 
+// Проверка заполнения обязательных полей метода PostCheckPanic
+func (i GetUsersMyAlarmInput) validate() error {
+	if i.SiteId == "" {
+		return errors.New("неверно задан идентификатор проверки")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
 // Генерация запроса метода GetSites
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
@@ -278,6 +316,24 @@ func (i GetCheckPanicInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointCheckPanic)
 	param := url.Values{}
 	param.Add("checkPanicId", i.CheckPanicId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i GetUsersMyAlarmInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointMyAlarm)
+	param := url.Values{}
+	param.Add("siteId", i.SiteId)
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
@@ -384,6 +440,28 @@ func (c *Client) GetCheckPanic(ctx context.Context, input GetCheckPanicInput) (G
 	err = json.Unmarshal(body, &resp)
 	if err != nil {
 		return GetCheckPanicResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода GetUsersMyAlarm
+func (c *Client) GetUsersMyAlarm(ctx context.Context, input GetUsersMyAlarmInput) ([]UserMyAlarmResponse, error) {
+	if err := input.validate(); err != nil {
+		return []UserMyAlarmResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return []UserMyAlarmResponse{}, err
+	}
+
+	var resp []UserMyAlarmResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return []UserMyAlarmResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
 	}
 
 	return resp, nil
