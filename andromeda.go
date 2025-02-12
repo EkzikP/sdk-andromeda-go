@@ -23,28 +23,31 @@ const (
 )
 
 type (
+	//Обязательные параметры для всех запросов к API
+	Config struct {
+		ApiKey string `json:"-"`
+		Host   string `json:"-"`
+	}
+
 	//Входная структура для метода GetSites
 	GetSitesInput struct {
 		Id       string //Номер или идентификатор объекта
 		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey   string
-		Host     string
+		Config
 	}
 
 	//Входная структура для метода GetCustomers
 	GetCustomersInput struct {
 		SiteId   string //Идентификатор объекта, список ответственных лиц которого нужно получить. Соответствует полю Id карточки объекта
 		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey   string
-		Host     string
+		Config
 	}
 
 	//Входная структура для метода GetCustomer
 	GetCustomerInput struct {
 		Id       string //Идентификатор ответственного лица, информацию которого нужно получить
 		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey   string
-		Host     string
+		Config
 	}
 
 	//Входная структура для метода PostCheckPanic
@@ -53,32 +56,36 @@ type (
 		CheckInterval int    //Интервал в секундах, в течении которого будет продолжаться процедура проверки КТС. (необязательное поле)
 		StopOnEvent   bool   //Признак остановки проверки КТС. (необязательное поле)
 		UserName      string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey        string
-		Host          string
+		Config
 	}
 
 	//Входная структура для метода GetCheckPanic
 	GetCheckPanicInput struct {
-		CheckPanicId string //Идентификатор процеудры проверки, для которой нужно получить результат
+		CheckPanicId string //Идентификатор процедуры проверки, для которой нужно получить результат
 		UserName     string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey       string
-		Host         string
+		Config
 	}
 
 	//Входная структура для метода GetUsersMyAlarm
 	GetUsersMyAlarmInput struct {
 		SiteId   string //Идентификатор объекта, список пользователей MyAlarm которого нужно получить. Соответствует полю Id карточки объекта
 		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey   string
-		Host     string
+		Config
 	}
 
 	//Входная структура для метода GetUserObjectMyAlarm
 	GetUserObjectMyAlarmInput struct {
 		Phone    string `json:"Phone"` //Телефон пользователя MyAlarm, для которого нужно получить список объектов
 		UserName string `json:"-"`     //Имя пользователя, от которого делается запрос (необязательное поле)
-		ApiKey   string `json:"-"`
-		Host     string `json:"-"`
+		Config
+	}
+
+	//Входная структура для метода PutChangeUserMyAlarm
+	PutChangeUserMyAlarmInput struct {
+		CustId   string //Идентификатор пользователя
+		Role     string //Роль пользователя, допустимые значения: “unlink”, “user”, “admin”
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		Config
 	}
 
 	request struct {
@@ -98,6 +105,11 @@ type (
 		Status       int    `json:"Status"`
 		Description  string `json:"Description"`
 		CheckPanicId string `json:"CheckPanicId"`
+	}
+
+	//Структура ответа от сервера метода PutChangeUserMyAlarm
+	PutChangeUserMyAlarmResponse struct {
+		Message string `json:"Message"`
 	}
 
 	//Структура ответа от сервера метода GetCheckPanic
@@ -314,6 +326,27 @@ func (i GetUserObjectMyAlarmInput) validate() error {
 	return nil
 }
 
+// Проверка заполнения обязательных полей метода GetUserObjectMyAlarm
+func (i PutChangeUserMyAlarmInput) validate() error {
+	if i.CustId == "" {
+		return errors.New("неверно задан идентификатор пользователя")
+	}
+
+	if i.Role != "admin" && i.Role != "user" && i.Role != "unlink" {
+		return errors.New("неверно задана роль пользователя")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
 // Генерация запроса метода GetSites
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
@@ -416,6 +449,25 @@ func (i GetUsersMyAlarmInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointMyAlarm)
 	param := url.Values{}
 	param.Add("siteId", i.SiteId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i PutChangeUserMyAlarmInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointMyAlarm)
+	param := url.Values{}
+	param.Add("custId", i.CustId)
+	param.Add("role", i.Role)
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
@@ -584,6 +636,30 @@ func (c *Client) GetUsersMyAlarm(ctx context.Context, input GetUsersMyAlarmInput
 	err = json.Unmarshal(body, &resp)
 	if err != nil {
 		return []UserMyAlarmResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода PutChangeUserMyAlarm
+func (c *Client) PutChangeUserMyAlarm(ctx context.Context, input PutChangeUserMyAlarmInput) (PutChangeUserMyAlarmResponse, error) {
+	if err := input.validate(); err != nil {
+		return PutChangeUserMyAlarmResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodPut, req)
+	if err != nil {
+		return PutChangeUserMyAlarmResponse{}, err
+	}
+
+	var resp PutChangeUserMyAlarmResponse
+
+	if len(body) != 0 {
+		err = json.Unmarshal(body, &resp)
+		if err != nil {
+			return PutChangeUserMyAlarmResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+		}
 	}
 
 	return resp, nil
