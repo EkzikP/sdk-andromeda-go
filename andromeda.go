@@ -88,6 +88,14 @@ type (
 		Config
 	}
 
+	//Входная структура для метода PutChangeKTSUserMyAlarm
+	PutChangeKTSUserMyAlarmInput struct {
+		CustId   string //Идентификатор пользователя
+		IsPanic  bool   //true разрешить использование КТС, false - запретить
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		Config
+	}
+
 	request struct {
 		URL    string
 		body   []byte
@@ -347,6 +355,22 @@ func (i PutChangeUserMyAlarmInput) validate() error {
 	return nil
 }
 
+func (i PutChangeKTSUserMyAlarmInput) validate() error {
+	if i.CustId == "" {
+		return errors.New("неверно задан идентификатор пользователя")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
 // Генерация запроса метода GetSites
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
@@ -468,6 +492,25 @@ func (i PutChangeUserMyAlarmInput) generateRequest() request {
 	param := url.Values{}
 	param.Add("custId", i.CustId)
 	param.Add("role", i.Role)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i PutChangeKTSUserMyAlarmInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointMyAlarm)
+	param := url.Values{}
+	param.Add("custId", i.CustId)
+	param.Add("isPanic", strconv.FormatBool(i.IsPanic))
 	if i.UserName != "" {
 		param.Add("userName", i.UserName)
 	}
@@ -685,6 +728,21 @@ func (c *Client) GetUserObjectMyAlarm(ctx context.Context, input GetUserObjectMy
 	}
 
 	return resp, nil
+}
+
+// Запрос метода PutChangeKTSUserMyAlarm
+func (c *Client) PutChangeKTSUserMyAlarm(ctx context.Context, input PutChangeKTSUserMyAlarmInput) error {
+	if err := input.validate(); err != nil {
+		return err
+	}
+
+	req := input.generateRequest()
+	_, err := c.doHTTP(ctx, http.MethodPut, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Метод http выполнения запроса
