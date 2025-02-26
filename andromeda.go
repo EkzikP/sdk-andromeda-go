@@ -18,6 +18,8 @@ const (
 	endpointCheckPanic           = "/CheckPanic"
 	endpointMyAlarm              = "/MyAlarm"
 	endpointGetUserObjectMyAlarm = "/MyAlarm/UserObjects"
+	endpointGetParts             = "/Parts"
+	endpointGetZones             = "/Zones"
 
 	defaultTimeout = 5 * time.Second
 )
@@ -96,6 +98,20 @@ type (
 		Config
 	}
 
+	//Входная структура для метода GetParts
+	GetPartsInput struct {
+		SiteId   string //Идентификатор пользователя
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		Config
+	}
+
+	//Входная структура для метода GetZones
+	GetZonesInput struct {
+		SiteId   string //Идентификатор пользователя
+		UserName string //Имя пользователя, от которого делается запрос (необязательное поле)
+		Config
+	}
+
 	request struct {
 		URL    string
 		body   []byte
@@ -141,6 +157,26 @@ type (
 		CustomerID string `json:"CustomerID"` //Идентификатор пользователя
 		Role       string `json:"Role"`       //Роль пользователя
 		IsPanic    bool   `json:"IsPanic"`    //Разрешён или запрещён КТС
+	}
+
+	//Структура ответа от сервера метода GetParts
+	GetPartsResponse struct {
+		Id                     string `json:"Id"`                     //Идентификатор раздела
+		PartNumber             int    `json:"PartNumber"`             //Номер раздела (натуральное число, почти всегда совпадает с номером, запрограммированным в контрольную панель, установленную на объекте)
+		ObjectNumber           int    `json:"ObjectNumber"`           //Объектовый номер раздела. Используется только для объектовых приборов, поддерживающих индивидуальные объектовые номера для разделов
+		PartDesc               string `json:"PartDesc"`               //Название (описание) раздела (не может быть пустым)
+		PartEquip              string `json:"PartEquip"`              //Название (описание) оборудования, установленного в разделе
+		IsStateArm             bool   `json:"IsStateArm"`             //Состояние раздела: взят/снят/неизвестно.
+		IsStateAlarm           bool   `json:"IsStateAlarm"`           //Состояние раздела: раздел в тревоге/в норме.
+		StateArmDisArmDateTime string `json:"StateArmDisArmDateTime"` //Состояние раздела: время последнего взятия / снятия.
+	}
+
+	//Структура ответа от сервера метода GetZones
+	GetZonesResponse struct {
+		Id         string `json:"Id"`         //Идентификатор шлейфа
+		ZoneNumber int    `json:"ZoneNumber"` //Номер шлейфа (натуральное число)
+		ZoneDesc   string `json:"ZoneDesc"`   //Описание шлейфа (не может быть пустым)
+		ZoneEquip  string `json:"ZoneEquip"`  //Оборудование шлейфа
 	}
 
 	//Структура ответа от сервера метода GetSites
@@ -371,6 +407,38 @@ func (i PutChangeKTSUserMyAlarmInput) validate() error {
 	return nil
 }
 
+func (i GetPartsInput) validate() error {
+	if i.SiteId == "" {
+		return errors.New("неверно задан идентификатор пользователя")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
+func (i GetZonesInput) validate() error {
+	if i.SiteId == "" {
+		return errors.New("неверно задан идентификатор пользователя")
+	}
+
+	if i.ApiKey == "" {
+		return errors.New("неверно задан API ключ")
+	}
+
+	if i.Host == "" {
+		return errors.New("неверно задан адрес сервера")
+	}
+
+	return nil
+}
+
 // Генерация запроса метода GetSites
 func (i GetSitesInput) generateRequest() request {
 	baseURL, _ := url.Parse(i.Host + endpointGetSites)
@@ -537,6 +605,42 @@ func (i GetUserObjectMyAlarmInput) generateRequest() request {
 	return request{
 		URL:    baseURL.String(),
 		body:   jsonData,
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i GetPartsInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointGetParts)
+	param := url.Values{}
+	param.Add("siteId", i.SiteId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
+		apiKey: i.ApiKey,
+	}
+
+}
+
+func (i GetZonesInput) generateRequest() request {
+
+	baseURL, _ := url.Parse(i.Host + endpointGetZones)
+	param := url.Values{}
+	param.Add("siteId", i.SiteId)
+	if i.UserName != "" {
+		param.Add("userName", i.UserName)
+	}
+	baseURL.RawQuery = param.Encode()
+
+	return request{
+		URL:    baseURL.String(),
+		body:   []byte{},
 		apiKey: i.ApiKey,
 	}
 
@@ -743,6 +847,50 @@ func (c *Client) PutChangeKTSUserMyAlarm(ctx context.Context, input PutChangeKTS
 	}
 
 	return nil
+}
+
+// Запрос метода GetParts
+func (c *Client) GetParts(ctx context.Context, input GetPartsInput) ([]GetPartsResponse, error) {
+	if err := input.validate(); err != nil {
+		return []GetPartsResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return []GetPartsResponse{}, err
+	}
+
+	var resp []GetPartsResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return []GetPartsResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
+}
+
+// Запрос метода GetZones
+func (c *Client) GetZones(ctx context.Context, input GetZonesInput) ([]GetZonesResponse, error) {
+	if err := input.validate(); err != nil {
+		return []GetZonesResponse{}, err
+	}
+
+	req := input.generateRequest()
+	body, err := c.doHTTP(ctx, http.MethodGet, req)
+	if err != nil {
+		return []GetZonesResponse{}, err
+	}
+
+	var resp []GetZonesResponse
+
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return []GetZonesResponse{}, errors.WithMessage(err, "Не удалось парсить ответ")
+	}
+
+	return resp, nil
 }
 
 // Метод http выполнения запроса
